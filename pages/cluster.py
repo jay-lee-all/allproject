@@ -18,7 +18,7 @@ secrets = toml.load(".streamlit/secrets.toml")
 os.environ["OPENAI_API_KEY"] = secrets["OPENAI_KEY"]
 
 # Streamlit UI setup
-st.title("HDBSCAN Clustering and LangChain Analysis")
+st.title("User Data Clustering")
 
 # File uploader
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
