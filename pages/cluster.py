@@ -1,17 +1,17 @@
 import streamlit as st
 import pandas as pd
-from konlpy.tag import Okt
-from tqdm import tqdm
-import hdbscan
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics import pairwise_distances
 import numpy as np
-from langchain_openai import ChatOpenAI
+import hdbscan
+from sklearn.metrics import pairwise_distances
+from langchain_openai import OpenAIEmbeddings
 from langchain.chains import LLMChain
+from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.output_parsers import RegexParser
 import os
 import toml
+import plotly.express as px
+
 
 # Load secrets
 secrets = toml.load(".streamlit/secrets.toml")
@@ -40,49 +40,54 @@ if uploaded_file:
 
     # Button to run clustering
     if st.button("Run Clustering"):
-        # Extract nouns from text using Okt tokenizer
-        okt = Okt()
-        noun_list = []
-        for content in tqdm(df["text"]):
-            nouns = okt.nouns(content)
-            noun_list.append(nouns)
+        try:
+            # Initialize OpenAIEmbeddings with your API key
+            openai_embeddings = OpenAIEmbeddings(
+                openai_api_key=os.getenv("OPENAI_API_KEY"),
+                model="text-embedding-3-small",
+            )
 
-        df["nouns"] = noun_list
+            # Prepare text for embeddings
+            text = df["text"].tolist()
 
-        # Drop rows with no nouns
-        df = df[df["nouns"].map(len) > 0]
-        df.reset_index(drop=True, inplace=True)
+            # Get OpenAI embeddings for the text
+            embeddings = openai_embeddings.embed_documents(text)
 
-        # Prepare text for clustering
-        text = [" ".join(noun) for noun in df["nouns"]]
+            # Convert embeddings to a format suitable for further processing
+            vector = np.array(embeddings)
 
-        # TF-IDF Vectorization
-        tfidf_vectorizer = TfidfVectorizer(min_df=3, ngram_range=(1, 3))
-        tfidf_vectorizer.fit(text)
-        vector = tfidf_vectorizer.transform(text).toarray()
+            # Compute Distance Matrix
+            distance_matrix = pairwise_distances(vector, metric="cosine")
 
-        # Compute Distance Matrix
-        distance_matrix = pairwise_distances(vector, metric="cosine")
+            # HDBSCAN Clustering
+            hdbscan_model = hdbscan.HDBSCAN(
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                metric="precomputed",
+                cluster_selection_epsilon=cluster_selection_epsilon,
+            )
+            result = hdbscan_model.fit_predict(distance_matrix)
 
-        # HDBSCAN Clustering
-        hdbscan_model = hdbscan.HDBSCAN(
-            min_cluster_size=min_cluster_size,
-            min_samples=min_samples,
-            metric="precomputed",
-            cluster_selection_epsilon=cluster_selection_epsilon,
-        )
-        result = hdbscan_model.fit_predict(distance_matrix)
+            df["result"] = result
+            minus_one_count = (df["result"] == -1).sum()
+            num_clusters = len(set(result)) - (1 if -1 in result else 0)
 
-        df["result"] = result
-        minus_one_count = (df["result"] == -1).sum()
-        num_clusters = len(set(result)) - (1 if -1 in result else 0)
+            # Display noise and cluster count
+            st.write(f"Noise count: {minus_one_count}")
+            st.write(f"Number of clusters: {num_clusters}")
 
-        # Display noise and cluster count
-        st.write(f"Noise count: {minus_one_count}")
-        st.write(f"Number of clusters: {num_clusters}")
+            # Store data in session state to persist it across interactions
+            st.session_state["df"] = df
+            st.session_state["organized_df"] = None
 
-        # Proceed button to continue
-        if st.button("Proceed with Analysis"):
+        except Exception as e:
+            st.error(f"An error occurred during clustering: {e}")
+
+    # Proceed button to continue analysis
+    if "df" in st.session_state and st.button("Proceed with Analysis"):
+        try:
+            df = st.session_state["df"]
+
             # Count the number of rows in each cluster
             counts_df = df.groupby("result").size().reset_index(name="count")
 
@@ -115,9 +120,10 @@ if uploaded_file:
                 ),
                 axis=1,
             )
+            organized_df = organized_df[organized_df["result"] != -1]
 
-            # Only process the first 10 clusters for the example
-            organized_df = organized_df.head(10)
+            # Store organized_df in session state
+            st.session_state["organized_df"] = organized_df
 
             # Prepare the combined prompt using LangChain's PromptTemplate
             combined_prompt_template = PromptTemplate(
@@ -157,11 +163,14 @@ if uploaded_file:
                 for text in texts:
                     # Prepare input for the chain
                     inputs = {"text": text, "topic": topic}
-                    # Use the invoke method to run the chain and parse the output
-                    parsed_output = chain.invoke(inputs)
-                    results.append(
-                        (parsed_output["label"], int(parsed_output["related"]))
-                    )
+                    try:
+                        parsed_output = chain.run(inputs)
+                        results.append(
+                            (parsed_output["label"], int(parsed_output["related"]))
+                        )
+                    except Exception as e:
+                        st.error(f"Error processing text: {e}")
+                        results.append((None, None))
                 return results
 
             # Generate labels and relevance ratings using the LLMChain
@@ -170,6 +179,65 @@ if uploaded_file:
             )
             organized_df["label"], organized_df["related"] = zip(*results)
 
-            # Display the resulting DataFrame
-            st.write("Clustered data with labels and relevance scores:")
-            st.dataframe(organized_df)
+            # Sort DataFrame to push 'repeat == 1' to the bottom, then by 'count' descending, and 'related' 2 and 1 to the bottom
+            organized_df = organized_df.sort_values(
+                by=["repeat", "related", "count"], ascending=[True, False, False]
+            )
+
+            # Ensure 'related' 1 and 2 are at the bottom if 'repeat' is 0
+            organized_df = pd.concat(
+                [
+                    organized_df[
+                        (organized_df["repeat"] == 0) & (organized_df["related"] >= 3)
+                    ].sort_values(by="count", ascending=False),
+                    organized_df[
+                        (organized_df["repeat"] == 0) & (organized_df["related"] < 3)
+                    ].sort_values(by="related", ascending=False),
+                    organized_df[organized_df["repeat"] == 1],
+                ]
+            )
+
+            # Generate labels and relevance ratings using the LLMChain
+            results = generate_labels_and_relevance(
+                organized_df["text"].tolist(), topic
+            )
+            organized_df["label"], organized_df["related"] = zip(*results)
+
+            # Filter out clusters with 'repeat == 1' or 'related' scores of 1 or 2
+            organized_df = organized_df[
+                (organized_df["repeat"] != 1) & (organized_df["related"] >= 3)
+            ]
+
+            # Sort DataFrame by 'count' descending
+            organized_df = organized_df.sort_values(by=["count"], ascending=False)
+
+            # Set the number of top clusters to display to 10
+            top_clusters_df = organized_df.head(10)
+
+            # Store top_clusters_df in session state to persist it across interactions
+            st.session_state["top_clusters_df"] = top_clusters_df
+
+            # Create a Treemap using Plotly with pastel colors
+            fig = px.treemap(
+                top_clusters_df,
+                path=[px.Constant("All"), "label"],
+                values="count",
+                title="Cluster Treemap",
+                color_discrete_sequence=px.colors.qualitative.Pastel,
+            )
+
+            # Display the Treemap
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.subheader("Download processed data:")
+            organized_df.to_excel("cluster.xlsx", index=False)
+
+            with open("cluster.xlsx", "rb") as f:
+                st.download_button(
+                    label="Download Excel file",
+                    data=f,
+                    file_name="cluster.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+        except Exception as e:
+            st.error(f"An error occurred during analysis: {e}")
