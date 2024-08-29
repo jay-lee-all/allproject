@@ -54,11 +54,31 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
     st.write("File uploaded successfully!")
 
-    # HDBSCAN parameter sliders
+    st.write("### Minimum Cluster Size")
+    st.write(
+        "클러스터를 형성하는 데 필요한 최소 데이터 포인트 수를 설정합니다. "
+        "값이 작으면 더 작은 클러스터가 많이 생성되고, 값이 크면 더 큰 클러스터가 적게 생성됩니다. "
+        "데이터의 밀집도를 기반으로 의미 있는 클러스터를 찾는 데 사용됩니다."
+    )
     min_cluster_size = st.slider(
         "Minimum Cluster Size", min_value=2, max_value=20, value=5
     )
+
+    # Minimum Samples 설명
+    st.write("### Minimum Samples")
+    st.write(
+        "포인트가 핵심 포인트로 간주되기 위해 필요한 최소 이웃 수를 설정합니다. "
+        "값이 높을수록 클러스터링이 더 엄격해지고, 값이 낮으면 더 많은 포인트가 클러스터에 포함됩니다. "
+        "클러스터 내 점의 밀도를 조정하는 데 도움이 됩니다."
+    )
     min_samples = st.slider("Minimum Samples", min_value=1, max_value=10, value=2)
+
+    # Cluster Selection Epsilon 설명
+    st.write("### Cluster Selection Epsilon")
+    st.write(
+        "클러스터 계층 구조에서 평평한 클러스터링 결과를 추출할 때 안정성과 지속성에 대한 임계값을 설정합니다. "
+        "값이 낮을수록 안정적이고 적은 수의 클러스터가 선택되고, 값이 높을수록 덜 안정적이고 더 많은 클러스터가 포함될 수 있습니다."
+    )
     cluster_selection_epsilon = st.slider(
         "Cluster Selection Epsilon", min_value=0.0, max_value=0.1, step=0.01, value=0.01
     )
