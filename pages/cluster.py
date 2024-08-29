@@ -54,30 +54,29 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
     st.write("File uploaded successfully!")
 
-    st.write("### Minimum Cluster Size")
-    st.write(
-        "클러스터를 형성하는 데 필요한 최소 데이터 포인트 수를 설정합니다. "
-        "값이 작으면 더 작은 클러스터가 많이 생성되고, 값이 크면 더 큰 클러스터가 적게 생성됩니다. "
-        "데이터의 밀집도를 기반으로 의미 있는 클러스터를 찾는 데 사용됩니다."
+    st.markdown("#### Minimum Cluster Size")
+    st.markdown(
+        "<p style='font-size: 12px;'>클러스터의 최소 크기를 설정합니다. "
+        "이 값이 작으면 작은 그룹이 많이 생기고, 값이 크면 큰 그룹이 적게 생깁니다.</p>",
+        unsafe_allow_html=True
     )
     min_cluster_size = st.slider(
         "Minimum Cluster Size", min_value=2, max_value=20, value=5
     )
 
     # Minimum Samples 설명
-    st.write("### Minimum Samples")
-    st.write(
-        "포인트가 핵심 포인트로 간주되기 위해 필요한 최소 이웃 수를 설정합니다. "
-        "값이 높을수록 클러스터링이 더 엄격해지고, 값이 낮으면 더 많은 포인트가 클러스터에 포함됩니다. "
-        "클러스터 내 점의 밀도를 조정하는 데 도움이 됩니다."
+    "<p style='font-size: 12px;'>그룹을 만들 때 필요한 데이터의 최소 개수입니다. "
+        "값이 높을수록 클러스터링이 더 엄격해지고, 값이 낮으면 더 많은 포인트가 클러스터에 포함됩니다.</p>",
+        unsafe_allow_html=True
     )
     min_samples = st.slider("Minimum Samples", min_value=1, max_value=10, value=2)
 
     # Cluster Selection Epsilon 설명
-    st.write("### Cluster Selection Epsilon")
-    st.write(
-        "클러스터 계층 구조에서 평평한 클러스터링 결과를 추출할 때 안정성과 지속성에 대한 임계값을 설정합니다. "
-        "값이 낮을수록 안정적이고 적은 수의 클러스터가 선택되고, 값이 높을수록 덜 안정적이고 더 많은 클러스터가 포함될 수 있습니다."
+    st.markdown("#### Cluster Selection Epsilon")
+    st.markdown(
+        "<p style='font-size: 12px;'>그룹을 결정할 때 얼마나 다양한 그룹을 만들지 결정합니다. "
+        "값이 낮으면 안정적인 그룹이 만들어지고, 값이 높으면 더 다양한 그룹이 만들어집니다.</p>",
+        unsafe_allow_html=True
     )
     cluster_selection_epsilon = st.slider(
         "Cluster Selection Epsilon", min_value=0.0, max_value=0.1, step=0.01, value=0.01
