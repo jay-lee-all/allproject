@@ -65,7 +65,9 @@ if uploaded_file:
     )
 
     # Minimum Samples 설명
-    "<p style='font-size: 12px;'>그룹을 만들 때 필요한 데이터의 최소 개수입니다. "
+    st.markdown("#### Minimum Samples")
+    st.markdown(
+        "<p style='font-size: 12px;'>그룹을 만들 때 필요한 데이터의 최소 개수입니다. "
         "값이 높을수록 클러스터링이 더 엄격해지고, 값이 낮으면 더 많은 포인트가 클러스터에 포함됩니다.</p>",
         unsafe_allow_html=True
     )
