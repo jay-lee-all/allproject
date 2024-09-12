@@ -16,11 +16,17 @@ import os
 import matplotlib.pyplot as plt
 import streamlit as st
 import toml
+from matplotlib import font_manager
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 secrets = toml.load(".streamlit/secrets.toml")
 os.environ["OPENAI_API_KEY"] = secrets["OPENAI_KEY"]
 
+font_path = 'fonts/NanumGothic.ttf'  # Ensure this is the correct path relative to your project
+font_manager.fontManager.addfont(font_path)
+
+# Set the font family globally for matplotlib
+plt.rc('font', family='NanumGothic')
 
 # Main function that processes the file and generates the Excel output
 def process_file(file):
