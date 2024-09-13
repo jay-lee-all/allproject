@@ -46,6 +46,11 @@ def process_file(file):
     )
     user_interactions["date"] = user_interactions["time"].dt.date
 
+    if start_date is not None and end_date is not None:
+        user_interactions = user_interactions[
+            (user_interactions["date"] >= start_date) & (user_interactions["date"] <= end_date)
+        ]
+
     user_interactions = user_interactions[user_interactions["date"].notna()]
     user_interactions["user_id"] = df["UserID"]
 
@@ -407,15 +412,31 @@ st.title("YK monthly report")
 # Upload file
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
-# Only display the button and run processing if the file is uploaded
 if uploaded_file is not None:
-    # Add a button for processing the file
-    if st.button("Process File"):
-        output_excel = process_file(uploaded_file)
-        st.success(f"Processing complete. Download your file below.")
-        # Display download button after processing is complete
-        st.download_button(
-            label="Download Excel",
-            data=open(output_excel, "rb").read(),
-            file_name="processed_output.xlsx",
-        )
+    # Load the file into a DataFrame to get the date range for filtering
+    df = pd.read_excel(uploaded_file)
+    df["time"] = pd.to_datetime(df.filter(like="created_at."), errors="coerce").stack().reset_index(drop=True)
+    df["date"] = df["time"].dt.date
+
+    default_start_date = df["date"].min()
+    default_end_date = df["date"].max()
+
+    # Date range selection
+    st.subheader("Select date range:")
+    start_date = st.date_input("Start date", value=default_start_date, key="start_date")
+    end_date = st.date_input("End date", value=default_end_date, key="end_date")
+
+    # Ensure that start_date is before end_date
+    if start_date > end_date:
+        st.error("Error: End date must be after start date.")
+    else:
+        # Add a button for processing the file
+        if st.button("Process File"):
+            output_excel = process_file(uploaded_file, start_date=start_date, end_date=end_date)
+            st.success(f"Processing complete. Download your file below.")
+            # Display download button after processing is complete
+            st.download_button(
+                label="Download Excel",
+                data=open(output_excel, "rb").read(),
+                file_name="processed_output.xlsx",
+            )
