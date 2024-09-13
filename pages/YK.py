@@ -402,16 +402,20 @@ def process_file(file):
     return output_file
 
 
-# Streamlit App
-st.title("Chatbot Data Processor")
+st.title("YK monthly report")
 
+# Upload file
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
+# Only display the button and run processing if the file is uploaded
 if uploaded_file is not None:
-    output_excel = process_file(uploaded_file)
-    st.success(f"Processing complete. Download your file below.")
-    st.download_button(
-        label="Download Excel",
-        data=open(output_excel, "rb").read(),
-        file_name="processed_output.xlsx",
-    )
+    # Add a button for processing the file
+    if st.button("Process File"):
+        output_excel = process_file(uploaded_file)
+        st.success(f"Processing complete. Download your file below.")
+        # Display download button after processing is complete
+        st.download_button(
+            label="Download Excel",
+            data=open(output_excel, "rb").read(),
+            file_name="processed_output.xlsx",
+        )
