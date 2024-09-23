@@ -57,6 +57,8 @@ font_manager.fontManager.addfont(font_path)
 # Set the font family globally for matplotlib
 plt.rc('font', family='NanumGothic')
 
+
+    
 # Main function that processes the file and generates the Excel output
 def process_file(file):
     df = pd.read_excel(file)
@@ -287,6 +289,12 @@ def process_file(file):
             # Convert all data in the column to strings before calculating length
             max_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
             worksheet.set_column(i, i, max_len)
+   
+    def preprocess_dataframe(df):
+        # Replace NaN and Inf values
+        df = df.replace([np.inf, -np.inf], np.nan)  # Replace Inf with NaN
+        df = df.fillna(0)  # Optionally replace NaN with 0 or any other value
+        return df
 
     # Function to create side-by-side layout in Excel with table outlines and headers
     def write_side_by_side(writer, sheet_name, data, col_space=1):
@@ -303,7 +311,7 @@ def process_file(file):
 
         for category, result_df in data.items():
             # Get the 'label', 'count', and 'related' columns
-            category_data = result_df[["label", "question_count", "related"]].copy()
+            category_data = preprocess_dataframe(result_df[["label", "question_count", "related"]].copy())
             category_data.columns = ["Label", "Count", "Related"]
 
             # Write the category name at the top
