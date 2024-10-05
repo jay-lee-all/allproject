@@ -16,12 +16,41 @@ import os
 import matplotlib.pyplot as plt
 import streamlit as st
 import toml
+from matplotlib import font_manager
+import hmac
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
+
+
+def check_password():
+    """Returns `True` if the user had the correct password."""
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if hmac.compare_digest(st.session_state["password"], st.secrets["password"]):
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Don't store the password.
+        else:
+            st.session_state["password_correct"] = False
+
+    # Return True if the password is validated.
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # Show input for password.
+    st.text_input(
+        "Password", type="password", on_change=password_entered, key="password"
+    )
+    if "password_correct" in st.session_state:
+        st.error("😕 Password incorrect")
+    return False
+
+
+if not check_password():
+    st.stop()
+
 secrets = toml.load(".streamlit/secrets.toml")
 os.environ["OPENAI_API_KEY"] = secrets["OPENAI_KEY"]
-
-from matplotlib import font_manager
 
 font_path = (
     "fonts/NanumGothic.ttf"  # Ensure this is the correct path relative to your project
@@ -263,6 +292,12 @@ def process_file(file):
             max_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
             worksheet.set_column(i, i, max_len)
 
+    def preprocess_dataframe(df):
+        # Replace NaN and Inf values
+        df = df.replace([np.inf, -np.inf], np.nan)  # Replace Inf with NaN
+        df = df.fillna(0)  # Optionally replace NaN with 0 or any other value
+        return df
+
     # Function to create side-by-side layout in Excel with table outlines and headers
     def write_side_by_side(writer, sheet_name, data, col_space=1):
         worksheet = writer.book.add_worksheet(sheet_name)
@@ -278,7 +313,9 @@ def process_file(file):
 
         for category, result_df in data.items():
             # Get the 'label', 'count', and 'related' columns
-            category_data = result_df[["label", "question_count", "related"]].copy()
+            category_data = preprocess_dataframe(
+                result_df[["label", "question_count", "related"]].copy()
+            )
             category_data.columns = ["Label", "Count", "Related"]
 
             # Write the category name at the top
@@ -406,16 +443,20 @@ def process_file(file):
     return output_file
 
 
-# Streamlit App
-st.title("Chatbot Data Processor")
+st.title("YK monthly report")
 
+# Upload file
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
+# Only display the button and run processing if the file is uploaded
 if uploaded_file is not None:
-    output_excel = process_file(uploaded_file)
-    st.success(f"Processing complete. Download your file below.")
-    st.download_button(
-        label="Download Excel",
-        data=open(output_excel, "rb").read(),
-        file_name="processed_output.xlsx",
-    )
+    # Add a button for processing the file
+    if st.button("Process File"):
+        output_excel = process_file(uploaded_file)
+        st.success(f"Processing complete. Download your file below.")
+        # Display download button after processing is complete
+        st.download_button(
+            label="Download Excel",
+            data=open(output_excel, "rb").read(),
+            file_name="processed_output.xlsx",
+        )
