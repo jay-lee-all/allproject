@@ -4,7 +4,11 @@ import requests
 import json
 import time
 
+
 st.title("Intent Classifier Tester")
+
+api_key = st.text_input("Enter your API Key", type="password")
+skill_id = st.text_input("Enter Skill ID")
 
 st.download_button(
     label="Download Sample Input File",
@@ -16,21 +20,14 @@ st.download_button(
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 submit_button = st.button("Submit")
 
-if uploaded_file and submit_button:
+if uploaded_file and submit_button and api_key and skill_id:
     df = pd.read_excel(uploaded_file)
 
     url = "https://backend.alli.ai/webapi/skill"
-    headers = {
-        "API-KEY": "SU7GGVZERW8O5PBMDDJTQ2N3UCF88U8D4U",
-        "Content-Type": "application/json",
-    }
+    headers = {"API-KEY": api_key, "Content-Type": "application/json"}
 
     def get_skill_response(question):
-        payload = {
-            "id": "Q2FtcGFpZ246NjZmZjU4M2NkMjY1MjIyMDc2NGE4ODg4",
-            "text": question,
-            "variables": {},
-        }
+        payload = {"id": skill_id, "text": question, "variables": {}}
         try:
             response = requests.post(url, headers=headers, data=json.dumps(payload))
             result = response.json()
