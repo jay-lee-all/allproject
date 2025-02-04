@@ -194,39 +194,52 @@ def process_file(file):
 
     for category in categories:
         print(f"\nProcessing category: {category}")
-        sentences = user_interactions[user_interactions["Category"] == category][
-            "text"
-        ].tolist()
+    
+        # Filter sentences by category
+        sentences = categorized_data[categorized_data['Category'] == category]['Sentence'].tolist()
+    
+        # Compute embeddings for the filtered sentences
         openai_embeddings = OpenAIEmbeddings(
-            openai_api_key=os.getenv("OPENAI_API_KEY"), model="text-embedding-3-large"
+            openai_api_key=OPENAI_API_KEY,
+            model="text-embedding-3-large"
         )
+    
         embeddings = openai_embeddings.embed_documents(sentences)
         embeddings_array = np.array(embeddings)
-
-        umap_reducer = umap.UMAP(n_neighbors=15, n_components=5, metric="cosine")
+    
+        # Apply UMAP for dimensionality reduction
+        umap_reducer = umap.UMAP(n_neighbors=15, n_components=5, metric='cosine')  # Adjust n_components based on desired dimensionality
         reduced_embeddings = umap_reducer.fit_transform(embeddings_array)
-        distance_matrix = pairwise_distances(
-            reduced_embeddings, metric="cosine"
-        ).astype(np.float64)
-
+    
+        # Calculate cosine distance matrix for clustering on reduced embeddings
+        distance_matrix = pairwise_distances(reduced_embeddings, metric="cosine").astype(np.float64)  # Ensure the matrix is float64
+    
+        # Adjust clustering parameters specifically for "육아"
         if category == "육아":
             hdbscan_model = hdbscan.HDBSCAN(
-                min_cluster_size=6, min_samples=2, metric="precomputed"
+                min_cluster_size=6,  # Smaller cluster sizes for more granularity
+                min_samples=2,       # Adjust for better density definition
+                metric='precomputed'
             )
         else:
             hdbscan_model = hdbscan.HDBSCAN(
-                min_cluster_size=5, min_samples=2, metric="precomputed"
+                min_cluster_size=5,  # Default parameters for other categories
+                min_samples=2,
+                metric='precomputed'
             )
-
+    
         cluster_labels = hdbscan_model.fit_predict(distance_matrix)
-        cluster_df = pd.DataFrame({"Sentence": sentences, "Cluster": cluster_labels})
-        cluster_df = cluster_df[cluster_df["Cluster"] != -1]
-        combined_sentences = (
-            cluster_df.groupby("Cluster")["Sentence"]
-            .apply(lambda x: "\n".join(x))
-            .reset_index()
-        )
-
+    
+        # Prepare DataFrame to store clustering results
+        cluster_df = pd.DataFrame({'Sentence': sentences, 'Cluster': cluster_labels})
+    
+        # Exclude noise points (-1)
+        cluster_df = cluster_df[cluster_df['Cluster'] != -1]
+    
+        # Combine sentences in each cluster for summarization
+        combined_sentences = cluster_df.groupby('Cluster')['Sentence'].apply(lambda x: "\n".join(x)).reset_index()
+    
+        # Generate summaries and relevance using LangChain
         combined_prompt_template = PromptTemplate(
             input_variables=["text", "topic"],
             template=(
@@ -234,26 +247,26 @@ def process_file(file):
                 연관성을 기반으로 군집화된 질문들을 바탕으로 한국어로 짧게 질문들의 주제/목적을 생성하고,
                 생성된 주제가 지정된 주제 '{topic}'와 얼마나 관련이 있는지 평가하십시오.
                 관련성은 1(전혀 관련 없음)에서 4(매우 관련 있음) 사이의 숫자로 평가되어야 합니다.
-
+    
                 텍스트: {text}
-
+    
                 출력 형식 예시:
                 주제: [생성된 주제]
                 관련성: [1-4 숫자]
                 """
             ),
         )
-
+    
         output_parser = RegexParser(
             regex=r"주제:\s*(?P<label>.+?)\n관련성:\s*(?P<related>[1-4])",
             output_keys=["label", "related"],
         )
-
-        llm = ChatOpenAI(model="gpt-4o", openai_api_key=os.getenv("OPENAI_API_KEY"))
+    
+        llm = ChatOpenAI(model="gpt-4o", openai_api_key=OPENAI_API_KEY)
         chain = LLMChain(
             llm=llm, prompt=combined_prompt_template, output_parser=output_parser
         )
-
+    
         def generate_labels_and_relevance(texts, topic):
             results = []
             for text in texts:
@@ -267,29 +280,17 @@ def process_file(file):
                     print(f"Error processing text: {e}")
                     results.append((None, None))
             return results
-
-        results = generate_labels_and_relevance(
-            combined_sentences["Sentence"].tolist(), category
-        )
-        if len(results) > 0:
-            labels, related = zip(*results)
-            combined_sentences["label"] = labels
-            combined_sentences["related"] = related
-        else:
-            combined_sentences["label"] = []
-            combined_sentences["related"] = []
-        print(f"Results for category '{category}':", results)
-        print(f"Number of combined sentences for category '{category}':", len(combined_sentences))
-
-        # combined_sentences["label"], combined_sentences["related"] = zip(*results)
-
-        combined_sentences["question_count"] = combined_sentences["Sentence"].apply(
-            lambda x: len(x.split("\n"))
-        )
-        combined_sentences = combined_sentences.sort_values(
-            by=["related", "question_count"], ascending=[False, False]
-        )
-
+    
+        # Generate labels and relevance for each cluster
+        results = generate_labels_and_relevance(combined_sentences["Sentence"].tolist(), category)
+        combined_sentences["label"], combined_sentences["related"] = zip(*results)
+    
+        # Sort results by relevance and count of questions in each cluster
+        #combined_sentences["related_sort"] = combined_sentences["related"].apply(lambda x: 4 if x >= 3 else x)
+        combined_sentences["question_count"] = combined_sentences["Sentence"].apply(lambda x: len(x.split("\n")))
+        combined_sentences = combined_sentences.sort_values(by=["related", "question_count"], ascending=[False, False])
+    
+        # Store results for each category
         clustered_results[category] = combined_sentences
 
     # Create Excel output
