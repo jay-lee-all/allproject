@@ -271,13 +271,18 @@ def process_file(file):
         results = generate_labels_and_relevance(
             combined_sentences["Sentence"].tolist(), category
         )
-        if results:
-            combined_sentences["label"], combined_sentences["related"] = zip(*results)
+        if len(results) > 0:
+            labels, related = zip(*results)
+            combined_sentences["label"] = labels
+            combined_sentences["related"] = related
         else:
+            (f"Unpacking error for category '{category}': {ve}")
             combined_sentences["label"] = []
             combined_sentences["related"] = []
         print(f"Results for category '{category}':", results)
-        combined_sentences["label"], combined_sentences["related"] = zip(*results)
+        print(f"Number of combined sentences for category '{category}':", len(combined_sentences))
+
+        # combined_sentences["label"], combined_sentences["related"] = zip(*results)
 
         combined_sentences["question_count"] = combined_sentences["Sentence"].apply(
             lambda x: len(x.split("\n"))
