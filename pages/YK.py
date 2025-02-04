@@ -214,7 +214,7 @@ def process_file(file):
         output_keys=["label", "related"],
     )
     
-    llm = ChatOpenAI(model="gpt-4", openai_api_key=OPENAI_API_KEY)
+    llm = ChatOpenAI(model="gpt-4o", openai_api_key=os.getenv("OPENAI_API_KEY"))
     chain = LLMChain(
         llm=llm, 
         prompt=combined_prompt_template, 
@@ -262,8 +262,7 @@ def process_file(file):
     
         try:
             openai_embeddings = OpenAIEmbeddings(
-                openai_api_key=OPENAI_API_KEY,
-                model="text-embedding-3-large"
+                openai_api_key=os.getenv("OPENAI_API_KEY"), model="text-embedding-3-large"
             )
             
             embeddings = openai_embeddings.embed_documents(sentences)
