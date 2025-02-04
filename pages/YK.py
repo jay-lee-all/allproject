@@ -192,106 +192,156 @@ def process_file(file):
     categories = user_interactions["Category"].unique()
     clustered_results = {}
 
+    combined_prompt_template = PromptTemplate(
+        input_variables=["text", "topic"],
+        template=(
+            """다음 텍스트는 유저들이 챗봇에 작성한 질문들입니다.
+            연관성을 기반으로 군집화된 질문들을 바탕으로 한국어로 짧게 질문들의 주제/목적을 생성하고,
+            생성된 주제가 지정된 주제 '{topic}'와 얼마나 관련이 있는지 평가하십시오.
+            관련성은 1(전혀 관련 없음)에서 4(매우 관련 있음) 사이의 숫자로 평가되어야 합니다.
+    
+            텍스트: {text}
+    
+            출력 형식 예시:
+            주제: [생성된 주제]
+            관련성: [1-4 숫자]
+            """
+        ),
+    )
+    
+    output_parser = RegexParser(
+        regex=r"주제:\s*(?P<label>.+?)\n관련성:\s*(?P<related>[1-4])",
+        output_keys=["label", "related"],
+    )
+    
+    llm = ChatOpenAI(model="gpt-4", openai_api_key=OPENAI_API_KEY)
+    chain = LLMChain(
+        llm=llm, 
+        prompt=combined_prompt_template, 
+        output_parser=output_parser
+    )
+    
+    def generate_labels_and_relevance(texts, topic):
+        results = []
+        for text in texts:
+            inputs = {"text": text, "topic": topic}
+            try:
+                parsed_output = chain.run(inputs)
+                results.append(
+                    (parsed_output["label"], int(parsed_output["related"]))
+                )
+            except Exception as e:
+                print(f"Error processing text: {e}")
+                results.append((None, None))
+        return results
+    
+    clustered_results = {}
+    
     for category in categories:
         print(f"\nProcessing category: {category}")
     
-        # Filter sentences by category
-        sentences = categorized_data[categorized_data['Category'] == category]['Sentence'].tolist()
+        #sentences = categorized_data[categorized_data['Category'] == category]['Sentence'].tolist()
+        sentences = user_interactions[user_interactions["Category"] == category][
+            "text"
+        ].tolist()
+        
+        if len(sentences) < 3:
+            print(f"Category {category} has less than 3 samples - processing as single group")
+            combined_text = "\n".join(sentences)
+            results = generate_labels_and_relevance([combined_text], category)
+            if results:
+                label, related = results[0]
+                combined_sentences = pd.DataFrame({
+                    'Sentence': [combined_text],
+                    'label': [label],
+                    'related': [related],
+                    'question_count': [len(sentences)]
+                })
+                clustered_results[category] = combined_sentences
+            continue
     
-        # Compute embeddings for the filtered sentences
-        openai_embeddings = OpenAIEmbeddings(
-            openai_api_key=OPENAI_API_KEY,
-            model="text-embedding-3-large"
-        )
-    
-        embeddings = openai_embeddings.embed_documents(sentences)
-        embeddings_array = np.array(embeddings)
-    
-        # Apply UMAP for dimensionality reduction
-        umap_reducer = umap.UMAP(n_neighbors=15, n_components=5, metric='cosine')  # Adjust n_components based on desired dimensionality
-        reduced_embeddings = umap_reducer.fit_transform(embeddings_array)
-    
-        # Calculate cosine distance matrix for clustering on reduced embeddings
-        distance_matrix = pairwise_distances(reduced_embeddings, metric="cosine").astype(np.float64)  # Ensure the matrix is float64
-    
-        # Adjust clustering parameters specifically for "육아"
-        if category == "육아":
-            hdbscan_model = hdbscan.HDBSCAN(
-                min_cluster_size=6,  # Smaller cluster sizes for more granularity
-                min_samples=2,       # Adjust for better density definition
-                metric='precomputed'
+        try:
+            openai_embeddings = OpenAIEmbeddings(
+                openai_api_key=OPENAI_API_KEY,
+                model="text-embedding-3-large"
             )
-        else:
-            hdbscan_model = hdbscan.HDBSCAN(
-                min_cluster_size=5,  # Default parameters for other categories
-                min_samples=2,
-                metric='precomputed'
+            
+            embeddings = openai_embeddings.embed_documents(sentences)
+            embeddings_array = np.array(embeddings, dtype=np.float64)
+    
+            n_neighbors = min(15, max(2, len(sentences) - 1))
+            
+            umap_reducer = umap.UMAP(
+                n_neighbors=n_neighbors,
+                n_components=min(5, len(sentences) - 1),
+                metric='cosine',
+                min_dist=0.1,
+                random_state=None  # random_state 제거하여 n_jobs 경고 해결
             )
+            reduced_embeddings = umap_reducer.fit_transform(embeddings_array)
+            
+            distance_matrix = pairwise_distances(reduced_embeddings, metric="cosine").astype(np.float64)
+          
+            if category == "육아":
+                hdbscan_model = hdbscan.HDBSCAN(
+                    min_cluster_size=6,
+                    min_samples=2,
+                    metric='precomputed'
+                )
+            else:
+                min_cluster_size = min(5, max(2, len(sentences) // 3))
+                hdbscan_model = hdbscan.HDBSCAN(
+                    min_cluster_size=min_cluster_size,
+                    min_samples=2,
+                    metric='precomputed'
+                )
+            
+            cluster_labels = hdbscan_model.fit_predict(distance_matrix)
     
-        cluster_labels = hdbscan_model.fit_predict(distance_matrix)
+            cluster_df = pd.DataFrame({'Sentence': sentences, 'Cluster': cluster_labels})
     
-        # Prepare DataFrame to store clustering results
-        cluster_df = pd.DataFrame({'Sentence': sentences, 'Cluster': cluster_labels})
+            non_noise_clusters = cluster_df[cluster_df['Cluster'] != -1]
+            
+            if non_noise_clusters.empty:
+                print(f"No valid clusters found for category {category} - processing as single group")
+                combined_text = "\n".join(sentences)
+                results = generate_labels_and_relevance([combined_text], category)
+                if results:
+                    label, related = results[0]
+                    combined_sentences = pd.DataFrame({
+                        'Sentence': [combined_text],
+                        'label': [label],
+                        'related': [related],
+                        'question_count': [len(sentences)]
+                    })
+                    clustered_results[category] = combined_sentences
+                continue
     
-        # Exclude noise points (-1)
-        cluster_df = cluster_df[cluster_df['Cluster'] != -1]
+            combined_sentences = cluster_df.groupby('Cluster')['Sentence'].apply(lambda x: "\n".join(x)).reset_index()
+            results = generate_labels_and_relevance(combined_sentences["Sentence"].tolist(), category)
+            
+            if not results:
+                print(f"No results generated for category: {category}")
+                continue
+                
+            combined_sentences["label"], combined_sentences["related"] = zip(*results)
+            combined_sentences["question_count"] = combined_sentences["Sentence"].apply(lambda x: len(x.split("\n")))
+            combined_sentences = combined_sentences.sort_values(by=["related", "question_count"], ascending=[False, False])
+            clustered_results[category] = combined_sentences
     
-        # Combine sentences in each cluster for summarization
-        combined_sentences = cluster_df.groupby('Cluster')['Sentence'].apply(lambda x: "\n".join(x)).reset_index()
-    
-        # Generate summaries and relevance using LangChain
-        combined_prompt_template = PromptTemplate(
-            input_variables=["text", "topic"],
-            template=(
-                """다음 텍스트는 유저들이 챗봇에 작성한 질문들입니다.
-                연관성을 기반으로 군집화된 질문들을 바탕으로 한국어로 짧게 질문들의 주제/목적을 생성하고,
-                생성된 주제가 지정된 주제 '{topic}'와 얼마나 관련이 있는지 평가하십시오.
-                관련성은 1(전혀 관련 없음)에서 4(매우 관련 있음) 사이의 숫자로 평가되어야 합니다.
-    
-                텍스트: {text}
-    
-                출력 형식 예시:
-                주제: [생성된 주제]
-                관련성: [1-4 숫자]
-                """
-            ),
-        )
-    
-        output_parser = RegexParser(
-            regex=r"주제:\s*(?P<label>.+?)\n관련성:\s*(?P<related>[1-4])",
-            output_keys=["label", "related"],
-        )
-    
-        llm = ChatOpenAI(model="gpt-4o", openai_api_key=OPENAI_API_KEY)
-        chain = LLMChain(
-            llm=llm, prompt=combined_prompt_template, output_parser=output_parser
-        )
-    
-        def generate_labels_and_relevance(texts, topic):
-            results = []
-            for text in texts:
-                inputs = {"text": text, "topic": category}
-                try:
-                    parsed_output = chain.run(inputs)
-                    results.append(
-                        (parsed_output["label"], int(parsed_output["related"]))
-                    )
-                except Exception as e:
-                    print(f"Error processing text: {e}")
-                    results.append((None, None))
-            return results
-    
-        # Generate labels and relevance for each cluster
-        results = generate_labels_and_relevance(combined_sentences["Sentence"].tolist(), category)
-        combined_sentences["label"], combined_sentences["related"] = zip(*results)
-    
-        # Sort results by relevance and count of questions in each cluster
-        #combined_sentences["related_sort"] = combined_sentences["related"].apply(lambda x: 4 if x >= 3 else x)
-        combined_sentences["question_count"] = combined_sentences["Sentence"].apply(lambda x: len(x.split("\n")))
-        combined_sentences = combined_sentences.sort_values(by=["related", "question_count"], ascending=[False, False])
-    
-        # Store results for each category
-        clustered_results[category] = combined_sentences
+        except Exception as e:
+            print(f"Error processing category {category} - processing as single group: {e}")
+            combined_text = "\n".join(sentences)
+            results = generate_labels_and_relevance([combined_text], category)
+            if results:
+                label, related = results[0]
+                combined_sentences = pd.DataFrame({
+                    'Sentence': [combined_text],
+                    'label': [label],
+                    'related': [related],
+                    'question_count': [len(sentences)]
+                })
+                clustered_results[category] = combined_sentences
 
     # Create Excel output
     colors = ["#1F4E79", "#4A90E2", "#D6E4F0", "#ECECEC", "#34495E"]
