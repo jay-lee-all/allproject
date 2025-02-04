@@ -276,7 +276,6 @@ def process_file(file):
             combined_sentences["label"] = labels
             combined_sentences["related"] = related
         else:
-            (f"Unpacking error for category '{category}': {ve}")
             combined_sentences["label"] = []
             combined_sentences["related"] = []
         print(f"Results for category '{category}':", results)
