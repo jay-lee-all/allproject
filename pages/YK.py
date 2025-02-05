@@ -23,21 +23,18 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
 def check_password():
-    """Returns `True` if the user had the correct password."""
 
     def password_entered():
         """Checks whether a password entered by the user is correct."""
         if hmac.compare_digest(st.session_state["password"], st.secrets["password"]):
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Don't store the password.
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
-    # Return True if the password is validated.
     if st.session_state.get("password_correct", False):
         return True
 
-    # Show input for password.
     st.text_input(
         "Password", type="password", on_change=password_entered, key="password"
     )
@@ -53,7 +50,7 @@ secrets = toml.load(".streamlit/secrets.toml")
 os.environ["OPENAI_API_KEY"] = secrets["OPENAI_KEY"]
 
 font_path = (
-    "fonts/NanumGothic.ttf"  # Ensure this is the correct path relative to your project
+    "fonts/NanumGothic.ttf"
 )
 font_manager.fontManager.addfont(font_path)
 
@@ -61,7 +58,6 @@ font_manager.fontManager.addfont(font_path)
 plt.rc("font", family="NanumGothic")
 
 
-# Main function that processes the file and generates the Excel output
 def process_file(file):
     df = pd.read_excel(file)
     user_columns = [col for col in df.columns if col.startswith("user.")]
@@ -342,10 +338,8 @@ def process_file(file):
                 })
                 clustered_results[category] = combined_sentences
 
-    # Create Excel output
     colors = ["#1F4E79", "#4A90E2", "#D6E4F0", "#ECECEC", "#34495E"]
 
-    # Function to auto-adjust column widths
     def adjust_column_widths(df, worksheet):
         for i, col in enumerate(df.columns):
             # Convert all data in the column to strings before calculating length
@@ -358,17 +352,14 @@ def process_file(file):
         df = df.fillna(0)  # Optionally replace NaN with 0 or any other value
         return df
 
-    # Function to create side-by-side layout in Excel with table outlines and headers
     def write_side_by_side(writer, sheet_name, data, col_space=1):
         worksheet = writer.book.add_worksheet(sheet_name)
         col_offset = 0
 
-        # Define column widths to adjust
         wide_columns = [0, 4, 8, 12, 16, 20, 24]  # Corresponding to A, E, I, M, Q, U, Y
         for col in wide_columns:
             worksheet.set_column(col, col, 30)
 
-        # Add borders for table style
         border_format = writer.book.add_format({"border": 1})
 
         for category, result_df in data.items():
@@ -378,15 +369,12 @@ def process_file(file):
             )
             category_data.columns = ["Label", "Count", "Related"]
 
-            # Write the category name at the top
             worksheet.write(0, col_offset, category)
 
-            # Add headers under the category name
             worksheet.write(1, col_offset, "Label")
             worksheet.write(1, col_offset + 1, "Count")
             worksheet.write(1, col_offset + 2, "Related")
 
-            # Write the data under each category
             for row_idx, row in category_data.iterrows():
                 worksheet.write(row_idx + 2, col_offset, row["Label"], border_format)
                 worksheet.write(
@@ -412,7 +400,6 @@ def process_file(file):
         wrap_format = workbook.add_format({"text_wrap": True})
         worksheet.set_column("D:D", 50, wrap_format)
 
-    # Create a Pandas Excel writer using XlsxWriter as the engine
     output_file = "combined_output_with_styled_summary.xlsx"
 
     with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
@@ -422,12 +409,10 @@ def process_file(file):
         # Write category_summary to the second sheet
         category_summary.to_excel(writer, sheet_name="Category Summary", index=False)
 
-        # Access the workbook and worksheet objects
         workbook = writer.book
         daily_sheet = writer.sheets["Daily Summary"]
         category_sheet = writer.sheets["Category Summary"]
 
-        # Auto-adjust column widths for daily_summary and category_summary
         adjust_column_widths(daily_summary, daily_sheet)
         adjust_column_widths(category_summary, category_sheet)
 
@@ -435,7 +420,6 @@ def process_file(file):
         plt.figure(figsize=(10, 6))
         dates_formatted = pd.to_datetime(daily_summary["date"]).dt.strftime("%m-%d")
 
-        # Plot the lines with formatted dates
         plt.plot(
             dates_formatted,
             daily_summary["unique_users"],
@@ -450,20 +434,17 @@ def process_file(file):
         )
         # plt.plot(dates_formatted, daily_summary['avg_questions_per_user'], label='Avg Questions per User', color=colors[2])
 
-        # Set labels and title
         plt.xlabel("Date")
         plt.ylabel("Count")
         plt.title("Daily Summary Over Time")
         plt.legend()
         plt.grid(True)
 
-        # Save the plot to a temporary file
         plt.tight_layout()
         daily_summary_plot_path = "daily_summary_plot.png"
         plt.savefig(daily_summary_plot_path)
         daily_sheet.insert_image("G2", daily_summary_plot_path)
 
-        # Plot pie chart for category_summary
         plt.figure(figsize=(6, 6))
         plt.pie(
             category_summary["percentage_of_total"],
@@ -474,29 +455,23 @@ def process_file(file):
         )
         plt.title("Category Distribution")
 
-        # Save the pie chart to a temporary file
         plt.tight_layout()
         category_pie_chart_path = "category_pie_chart.png"
         plt.savefig(category_pie_chart_path)
         category_sheet.insert_image("G2", category_pie_chart_path)
 
-        # Write the side-by-side category labels, counts, and related with table outlines and headers
         write_side_by_side(writer, "All Categories Summary", clustered_results)
 
-        # Now add the category-specific sheets and apply column formatting
         for category, result_df in clustered_results.items():
             # Write each DataFrame to a separate sheet in the Excel file
             result_df[["label", "related", "question_count", "Sentence"]].to_excel(
                 writer, sheet_name=category, index=False
             )
 
-            # Access the worksheet object for the current category sheet
             category_sheet = writer.sheets[category]
 
-            # Apply custom formatting (column width and wrap text)
             format_category_sheet(category_sheet)
 
-    # Remove the temporary plot images after inserting them into the Excel file
     os.remove(daily_summary_plot_path)
     os.remove(category_pie_chart_path)
 
@@ -505,16 +480,12 @@ def process_file(file):
 
 st.title("YK monthly report")
 
-# Upload file
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
-# Only display the button and run processing if the file is uploaded
 if uploaded_file is not None:
-    # Add a button for processing the file
     if st.button("Process File"):
         output_excel = process_file(uploaded_file)
         st.success(f"Processing complete. Download your file below.")
-        # Display download button after processing is complete
         st.download_button(
             label="Download Excel",
             data=open(output_excel, "rb").read(),
