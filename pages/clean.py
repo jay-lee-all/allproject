@@ -142,11 +142,70 @@ def process_chatbot_data_advanced(df, start_date=None, end_date=None):
     return output_df, default_start_date, default_end_date
 
 
+def process_chatbot_data_all(df, start_date=None, end_date=None):
+    """
+    Modified processing of chatbot data to output user questions with user details.
+    """
+    # Get user details from the original dataframe
+    user_details = df[["First Name", "Last Name", "UserID"]]
+
+    # Find all user message columns
+    user_columns = [col for col in df.columns if col.startswith("user.")]
+    created_at_columns = [col for col in df.columns if col.startswith("created_at.")]
+
+    output_df = pd.DataFrame(
+        columns=["First Name", "Last Name", "UserID", "question", "date", "time"]
+    )
+
+    for index, row in df.iterrows():
+        first_name = row["First Name"]
+        last_name = row["Last Name"]
+        user_id = row["UserID"]
+
+        # Process each user message
+        for i in range(len(user_columns)):
+            user_col = f"user.{i}"
+            created_at_col = f"created_at.{i}"
+
+            if user_col in df.columns and created_at_col in df.columns:
+                if pd.notna(row[user_col]) and row[user_col] != "":
+                    # Convert timestamp to date and time components
+                    if pd.notna(row[created_at_col]):
+                        timestamp = pd.to_datetime(row[created_at_col])
+                        date = timestamp.date()
+                        time = timestamp.time()
+
+                        temp_df = pd.DataFrame(
+                            {
+                                "First Name": [first_name],
+                                "Last Name": [last_name],
+                                "UserID": [user_id],
+                                "question": [row[user_col]],
+                                "date": [date],
+                                "time": [time],
+                            }
+                        )
+                        output_df = pd.concat([output_df, temp_df], ignore_index=True)
+
+    # Apply date filters if provided
+    if start_date:
+        start_date = pd.to_datetime(start_date).date()
+        output_df = output_df[output_df["date"] >= start_date]
+
+    if end_date:
+        end_date = pd.to_datetime(end_date).date()
+        output_df = output_df[output_df["date"] <= end_date]
+
+    return output_df
+
+
 # Streamlit UI
 
 st.title("Chat Data Processor")
 
-tab1, tab2 = st.tabs(["Basic Processing", "Advanced Processing"])
+tab1, tab2, tab3 = st.tabs(
+    ["Basic Processing", "Advanced Processing", "Clean Detailed"]
+)
 
 with tab1:
     st.header("Basic Processing")
@@ -239,4 +298,43 @@ with tab2:
                     "Download Excel file",
                     f,
                     file_name="processed_conversation_data_advanced.xlsx",
+                )
+
+with tab3:
+    st.header("Clean Detailed")
+
+    uploaded_file = st.file_uploader(
+        "Upload your Excel file", type=["xlsx"], key="file_uploader_clean"
+    )
+
+    if uploaded_file:
+        df = pd.read_excel(uploaded_file)
+
+        dates = pd.to_datetime(df.filter(like="created_at").stack().values).date
+        default_start_date, default_end_date = dates.min(), dates.max()
+
+        st.subheader("Select date range:")
+        start_date = st.date_input(
+            "Start date", value=default_start_date, key="start_date_clean"
+        )
+        end_date = st.date_input(
+            "End date", value=default_end_date, key="end_date_clean"
+        )
+
+        if st.button("Process", key="process_clean"):
+            processed_data = process_chatbot_data_all(
+                df, start_date=start_date, end_date=end_date
+            )
+            st.subheader("Preview of processed data:")
+            st.write(processed_data.head(20))
+
+            st.subheader("Download processed data:")
+            processed_data.to_excel(
+                "processed_conversation_data_clean.xlsx", index=False
+            )
+            with open("processed_conversation_data_clean.xlsx", "rb") as f:
+                st.download_button(
+                    "Download Excel file",
+                    f,
+                    file_name="processed_conversation_data_clean.xlsx",
                 )
